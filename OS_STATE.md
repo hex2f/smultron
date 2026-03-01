@@ -276,3 +276,14 @@ Current syscall table in code:
 - `syscall/sysret` MSR+trampoline context switching is scaffolded but not fully implemented.
 - ELF `PT_LOAD` mapping + BSS zeroing + entry handoff now execute through a basic process manager slot pool, but this is still ring0 execution (no real ring3 context switch/page-table isolation yet).
 - Process model remains minimal/cooperative (`exec` only): no scheduler, no preemption, no `fork`, no wait semantics, and no per-process page-table isolation yet.
+- 2026-03-01: Fixed shell hang on unknown commands:
+-   Root cause: shell `exec_from_bin` and kernel `execve` syscall handlers were using `[0u8; 64]` arrays. LLVM optimized this into SIMD `movaps` zeroing, which triggers an Invalid Opcode (`#UD`) fault because SSE isn't fully enabled yet.
+-   Changes:
+-     - Replaced `[0u8; size]` arrays with `[core::mem::MaybeUninit<u8>::uninit(); size]` arrays in `userspace/apps/init/src/lib.rs` and `kernel/src/syscall.rs`.
+-     - Rewrote string copy loops to operate on `MaybeUninit` memory via byte-by-byte `write()`.
+-     - Cast initialized portion to `&[u8]` safely using `slice::from_raw_parts`.
+-   Verification:
+-     - `cd kernel && cargo bootimage` passed.
+-     - `python3 tests/harness.py --mode phase-all` passed.
+-     - `python3 tests/harness.py --mode shell-start` passed.
+-     - `pytest -q` passed.

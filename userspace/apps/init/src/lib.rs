@@ -89,7 +89,6 @@ fn exec_from_bin(cmd: &str, args: &str) -> u64 {
         return libos::exec_str(cmd, args);
     }
 
-    let mut path_buf = [0u8; 64];
     let prefix = BIN_PREFIX.as_bytes();
     let cmd_bytes = cmd.as_bytes();
     let total = prefix.len() + cmd_bytes.len();
@@ -97,9 +96,22 @@ fn exec_from_bin(cmd: &str, args: &str) -> u64 {
         return u64::MAX;
     }
 
-    path_buf[..prefix.len()].copy_from_slice(prefix);
-    path_buf[prefix.len()..total].copy_from_slice(cmd_bytes);
-    let path = match core::str::from_utf8(&path_buf[..total]) {
+    let mut path_buf = [core::mem::MaybeUninit::<u8>::uninit(); 64];
+
+    let mut i = 0;
+    while i < prefix.len() {
+        path_buf[i].write(prefix[i]);
+        i += 1;
+    }
+
+    let mut j = 0;
+    while j < cmd_bytes.len() {
+        path_buf[i + j].write(cmd_bytes[j]);
+        j += 1;
+    }
+
+    let path_slice = unsafe { core::slice::from_raw_parts(path_buf.as_ptr() as *const u8, total) };
+    let path = match core::str::from_utf8(path_slice) {
         Ok(p) => p,
         Err(_) => return u64::MAX,
     };

@@ -38,7 +38,8 @@ pub fn dispatch(nr: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
             let buf = unsafe { slice::from_raw_parts_mut(arg1 as *mut u8, len) };
             let mut count = 0usize;
             while count < len {
-                if let Some(byte) = serial::try_read_byte().or_else(crate::keyboard::try_read_byte) {
+                if let Some(byte) = serial::try_read_byte().or_else(crate::keyboard::try_read_byte)
+                {
                     buf[count] = byte;
                     count += 1;
                     if byte == b'\n' || byte == b'\r' {
@@ -73,23 +74,27 @@ pub fn dispatch(nr: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
                 return u64::MAX;
             }
 
-            let mut path_buf = [0u8; 64];
-            let path_len = match unsafe { copy_cstr(arg0 as *const u8, &mut path_buf) } {
+            let mut path_buf = [core::mem::MaybeUninit::<u8>::uninit(); 64];
+            let path_len = match unsafe { copy_cstr_uninit(arg0 as *const u8, &mut path_buf) } {
                 Some(len) => len,
                 None => return u64::MAX,
             };
-            let path = core::str::from_utf8(&path_buf[..path_len]).unwrap_or("");
+            let path_slice =
+                unsafe { slice::from_raw_parts(path_buf.as_ptr() as *const u8, path_len) };
+            let path = core::str::from_utf8(path_slice).unwrap_or("");
 
-            let mut args_buf = [0u8; 192];
+            let mut args_buf = [core::mem::MaybeUninit::<u8>::uninit(); 192];
             let args_len = if arg1 == 0 {
                 0
             } else {
-                match unsafe { copy_cstr(arg1 as *const u8, &mut args_buf) } {
+                match unsafe { copy_cstr_uninit(arg1 as *const u8, &mut args_buf) } {
                     Some(len) => len,
                     None => return u64::MAX,
                 }
             };
-            let args = core::str::from_utf8(&args_buf[..args_len]).unwrap_or("");
+            let args_slice =
+                unsafe { slice::from_raw_parts(args_buf.as_ptr() as *const u8, args_len) };
+            let args = core::str::from_utf8(args_slice).unwrap_or("");
             crate::process::exec(path, args)
         }
         x if x == SyscallNumber::Exit as u64 => 0,
@@ -97,7 +102,10 @@ pub fn dispatch(nr: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
     }
 }
 
-unsafe fn copy_cstr(src: *const u8, dst: &mut [u8]) -> Option<usize> {
+unsafe fn copy_cstr_uninit(
+    src: *const u8,
+    dst: &mut [core::mem::MaybeUninit<u8>],
+) -> Option<usize> {
     if src.is_null() || dst.is_empty() {
         return None;
     }
@@ -107,7 +115,7 @@ unsafe fn copy_cstr(src: *const u8, dst: &mut [u8]) -> Option<usize> {
         if b == 0 {
             return Some(i);
         }
-        dst[i] = b;
+        dst[i].write(b);
         i += 1;
     }
     None
