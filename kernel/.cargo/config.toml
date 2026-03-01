@@ -1,0 +1,13 @@
+[build]
+target = "x86_64-smultron"
+rustflags = ["-Zunstable-options"]
+
+[env]
+RUST_TARGET_PATH = { value = ".", relative = true }
+
+[target.'cfg(target_os = "none")']
+runner = "bootimage runner"
+
+[unstable]
+build-std = ["core", "compiler_builtins", "alloc"]
+build-std-features = ["compiler-builtins-mem"]

@@ -1,0 +1,23 @@
+[workspace]
+members = [
+  "kernel",
+  "userspace/libos",
+  "userspace/apps/init",
+  "userspace/apps/echo",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+
+[workspace.dependencies]
+spin = "0.9"
+x86_64 = "0.14"
+volatile = "0.2"
+lazy_static = { version = "1.4", features = ["spin_no_std"] }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
