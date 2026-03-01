@@ -138,13 +138,75 @@ fn build_env_str() -> ([u8; MAX_ENV_LEN + 1], usize) {
     (buf, offset)
 }
 
+fn get_env(key: &str) -> Option<&[u8]> {
+    let key_bytes = key.as_bytes();
+    unsafe {
+        for i in 0..MAX_ENV_VARS {
+            if ENV[i].key_len == key.len() && &ENV[i].key[..key.len()] == key_bytes {
+                return Some(&ENV[i].val[..ENV[i].val_len]);
+            }
+        }
+    }
+    None
+}
+
+fn expand_line(line: &str, out: &mut [u8]) -> usize {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    let mut out_idx = 0;
+
+    while i < bytes.len() && out_idx < out.len() {
+        if bytes[i] == b'$' {
+            i += 1;
+            let start = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            if start == i {
+                // Just a standalone '$'
+                if out_idx < out.len() {
+                    out[out_idx] = b'$';
+                    out_idx += 1;
+                }
+            } else {
+                let var_name = core::str::from_utf8(&bytes[start..i]).unwrap_or("");
+                if let Some(v) = get_env(var_name) {
+                    for &b in v {
+                        if out_idx < out.len() {
+                            out[out_idx] = b;
+                            out_idx += 1;
+                        }
+                    }
+                }
+            }
+        } else {
+            if out_idx < out.len() {
+                out[out_idx] = bytes[i];
+                out_idx += 1;
+            }
+            i += 1;
+        }
+    }
+    out_idx
+}
+
 fn dispatch(line: &[u8]) -> bool {
     let command = str::from_utf8(line).unwrap_or("").trim();
     if command.is_empty() {
         return true;
     }
 
-    let mut parts = command.splitn(2, char::is_whitespace);
+    let mut expanded_buf = [0u8; MAX_LINE * 2];
+    let expanded_len = expand_line(command, &mut expanded_buf);
+    let expanded_str = core::str::from_utf8(&expanded_buf[..expanded_len])
+        .unwrap_or("")
+        .trim();
+
+    if expanded_str.is_empty() {
+        return true;
+    }
+
+    let mut parts = expanded_str.splitn(2, char::is_whitespace);
     let cmd = parts.next().unwrap_or("");
     let args = parts.next().unwrap_or("").trim_start();
 

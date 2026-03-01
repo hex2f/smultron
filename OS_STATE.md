@@ -297,3 +297,10 @@ Current syscall table in code:
     - Built bootimage successfully (`cd kernel && cargo bootimage`).
     - Python tests successfully complete including visual checks (`python3 tests/harness.py --mode phase-all`).
     - Standard pytests confirm stability (`pytest -q`).
+- 2026-03-01: Added environment variable substitution to userspace shell:
+  - Added `get_env` helper and `expand_line` parser to `userspace/apps/init/src/lib.rs` to replace `$VAR` with its value.
+  - Updated `dispatch` function to process expanded strings instead of raw inputs, allowing commands like `echo $VAR` to print the current value of exported variables.
+  - Verification:
+    - Built bootimage successfully (`cd kernel && cargo bootimage`).
+    - Python tests successfully complete including visual checks (`python3 tests/harness.py --mode phase-all`).
+    - Standard pytests confirm stability (`pytest -q`).
