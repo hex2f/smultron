@@ -4,6 +4,7 @@ members = [
   "userspace/libos",
   "userspace/apps/init",
   "userspace/apps/echo",
+  "userspace/apps/env",
 ]
 resolver = "2"
 

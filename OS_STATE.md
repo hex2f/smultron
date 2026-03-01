@@ -287,3 +287,13 @@ Current syscall table in code:
 -     - `python3 tests/harness.py --mode phase-all` passed.
 -     - `python3 tests/harness.py --mode shell-start` passed.
 -     - `pytest -q` passed.
+- 2026-03-01: Added environment variable support to kernel, userspace execution path, and shell:
+  - Added new `env` parameter to kernel system call 59 (`execve`) via `arg2`.
+  - Updated `process::exec` and `elf_loader::exec_in_slot` to allocate and pass `env` through stack structure to userspace ELF entry function.
+  - Refactored libos to provide `exec_str_env` wrapping the new `syscall` API.
+  - Added shell support for static environment variables up to `MAX_ENV_VARS` array of keys/values (`export KEY=VALUE`).
+  - Added new standalone user app `/bin/env` mimicking `echo` to print the process environment passed at launch.
+  - Verification:
+    - Built bootimage successfully (`cd kernel && cargo bootimage`).
+    - Python tests successfully complete including visual checks (`python3 tests/harness.py --mode phase-all`).
+    - Standard pytests confirm stability (`pytest -q`).

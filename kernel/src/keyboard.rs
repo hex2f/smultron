@@ -4,13 +4,12 @@ use spin::Mutex;
 use x86_64::instructions::port::Port;
 
 lazy_static! {
-    static ref KEYBOARD: Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>> = Mutex::new(
-        Keyboard::new(
+    static ref KEYBOARD: Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>> =
+        Mutex::new(Keyboard::new(
             ScancodeSet1::new(),
             layouts::Us104Key,
             HandleControl::Ignore,
-        )
-    );
+        ));
 }
 
 pub fn try_read_byte() -> Option<u8> {

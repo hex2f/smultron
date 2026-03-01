@@ -128,7 +128,7 @@ pub fn probe_executable(path: &str) -> bool {
     elf_loader::probe_elf_for_slot(bytes, slot)
 }
 
-pub fn exec(path: &str, args: &str) -> u64 {
+pub fn exec(path: &str, args: &str, env: &str) -> u64 {
     let Some(bytes) = vfs::read_file(path) else {
         serial_println!("[failed] exec: missing app '{}'", path);
         return u64::MAX;
@@ -146,7 +146,7 @@ pub fn exec(path: &str, args: &str) -> u64 {
     };
 
     let slot = slot_for_index(slot_idx);
-    let status = match elf_loader::exec_in_slot(bytes, slot, args) {
+    let status = match elf_loader::exec_in_slot(bytes, slot, args, env) {
         Ok(code) => code,
         Err(msg) => {
             serial_println!("[failed] exec: {} for '{}'", msg, path);

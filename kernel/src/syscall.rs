@@ -95,7 +95,21 @@ pub fn dispatch(nr: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
             let args_slice =
                 unsafe { slice::from_raw_parts(args_buf.as_ptr() as *const u8, args_len) };
             let args = core::str::from_utf8(args_slice).unwrap_or("");
-            crate::process::exec(path, args)
+
+            let mut env_buf = [core::mem::MaybeUninit::<u8>::uninit(); 512];
+            let env_len = if arg2 == 0 {
+                0
+            } else {
+                match unsafe { copy_cstr_uninit(arg2 as *const u8, &mut env_buf) } {
+                    Some(len) => len,
+                    None => return u64::MAX,
+                }
+            };
+            let env_slice =
+                unsafe { slice::from_raw_parts(env_buf.as_ptr() as *const u8, env_len) };
+            let env = core::str::from_utf8(env_slice).unwrap_or("");
+
+            crate::process::exec(path, args, env)
         }
         x if x == SyscallNumber::Exit as u64 => 0,
         _ => u64::MAX,

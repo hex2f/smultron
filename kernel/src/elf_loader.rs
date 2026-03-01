@@ -1,6 +1,7 @@
 use crate::syscall;
 
 const MAX_ARG_LEN: usize = 191;
+const MAX_ENV_LEN: usize = 511;
 const ELFMAG: &[u8; 4] = b"\x7fELF";
 const EI_CLASS: usize = 4;
 const EI_DATA: usize = 5;
@@ -10,7 +11,7 @@ const PT_LOAD: u32 = 1;
 const ELF64_EHDR_SIZE: usize = 64;
 const ELF64_PHDR_SIZE: usize = 56;
 
-type EntryFn = extern "C" fn(*const u8, usize) -> u64;
+type EntryFn = extern "C" fn(*const u8, usize, *const u8) -> u64;
 
 #[derive(Clone, Copy)]
 pub struct AppSlot {
@@ -22,7 +23,12 @@ pub fn probe_elf_for_slot(bytes: &[u8], slot: AppSlot) -> bool {
     validate_elf_for_slot(bytes, slot).is_ok()
 }
 
-pub fn exec_in_slot(bytes: &[u8], slot: AppSlot, args: &str) -> Result<u64, &'static str> {
+pub fn exec_in_slot(
+    bytes: &[u8],
+    slot: AppSlot,
+    args: &str,
+    env: &str,
+) -> Result<u64, &'static str> {
     let hdr = match validate_elf_for_slot(bytes, slot) {
         Ok(v) => v,
         Err(msg) => {
@@ -42,6 +48,10 @@ pub fn exec_in_slot(bytes: &[u8], slot: AppSlot, args: &str) -> Result<u64, &'st
         return Err("args too long");
     }
 
+    if env.len() > MAX_ENV_LEN {
+        return Err("env too long");
+    }
+
     // Avoid whole-buffer zero-init on stack here; it can lower to SSE ops before
     // we've explicitly enabled SSE in this kernel path.
     let mut arg_buf = [core::mem::MaybeUninit::<u8>::uninit(); MAX_ARG_LEN + 1];
@@ -52,9 +62,21 @@ pub fn exec_in_slot(bytes: &[u8], slot: AppSlot, args: &str) -> Result<u64, &'st
     }
     arg_buf[i].write(0);
 
+    let mut env_buf = [core::mem::MaybeUninit::<u8>::uninit(); MAX_ENV_LEN + 1];
+    let mut j = 0usize;
+    while j < env.len() {
+        env_buf[j].write(env.as_bytes()[j]);
+        j += 1;
+    }
+    env_buf[j].write(0);
+
     let entry_fn: EntryFn = unsafe { core::mem::transmute(hdr.entry as usize) };
     let gate = syscall::smultron_syscall_gate as *const () as usize;
-    Ok(entry_fn(arg_buf.as_ptr() as *const u8, gate))
+    Ok(entry_fn(
+        arg_buf.as_ptr() as *const u8,
+        gate,
+        env_buf.as_ptr() as *const u8,
+    ))
 }
 
 fn validate_elf_for_slot(bytes: &[u8], slot: AppSlot) -> Result<ElfHdr, &'static str> {

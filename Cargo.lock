@@ -40,6 +40,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "env"
+version = "0.1.0"
+dependencies = [
+ "libos",
+]
+
+[[package]]
 name = "init"
 version = "0.1.0"
 dependencies = [

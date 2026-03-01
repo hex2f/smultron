@@ -4,7 +4,7 @@
 use core::panic::PanicInfo;
 
 #[no_mangle]
-pub extern "C" fn _start(_args: *const u8, syscall_gate: usize) -> u64 {
+pub extern "C" fn _start(_args: *const u8, syscall_gate: usize, _env: *const u8) -> u64 {
     libos::set_syscall_gate(syscall_gate);
     init::run()
 }

@@ -3,6 +3,7 @@ use crate::serial_println;
 static HELLO_TXT: &[u8] = b"hello.txt from initrd/TarFS";
 static INIT_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/init.elf"));
 static ECHO_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/echo.elf"));
+static ENV_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/env.elf"));
 
 struct FileEntry {
     path: &'static str,
@@ -21,6 +22,10 @@ static FILES: &[FileEntry] = &[
     FileEntry {
         path: "/bin/echo",
         data: ECHO_ELF,
+    },
+    FileEntry {
+        path: "/bin/env",
+        data: ENV_ELF,
     },
 ];
 

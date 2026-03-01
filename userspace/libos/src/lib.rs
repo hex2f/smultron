@@ -31,12 +31,22 @@ pub fn exec(path: *const u8, args: *const u8) -> u64 {
     unsafe { syscall3(59, path as u64, args as u64, 0) }
 }
 
+pub fn exec_env(path: *const u8, args: *const u8, env: *const u8) -> u64 {
+    unsafe { syscall3(59, path as u64, args as u64, env as u64) }
+}
+
 pub fn exec_str(path: &str, args: &str) -> u64 {
+    exec_str_env(path, args, "")
+}
+
+pub fn exec_str_env(path: &str, args: &str, env: &str) -> u64 {
     const MAX_PATH: usize = 63;
     const MAX_ARGS: usize = 191;
+    const MAX_ENV: usize = 511;
     let path_bytes = path.as_bytes();
     let arg_bytes = args.as_bytes();
-    if path_bytes.len() > MAX_PATH || arg_bytes.len() > MAX_ARGS {
+    let env_bytes = env.as_bytes();
+    if path_bytes.len() > MAX_PATH || arg_bytes.len() > MAX_ARGS || env_bytes.len() > MAX_ENV {
         return u64::MAX;
     }
 
@@ -44,6 +54,7 @@ pub fn exec_str(path: &str, args: &str) -> u64 {
     // to SSE ops before SSE state is explicitly configured.
     let mut path_buf = [core::mem::MaybeUninit::<u8>::uninit(); MAX_PATH + 1];
     let mut args_buf = [core::mem::MaybeUninit::<u8>::uninit(); MAX_ARGS + 1];
+    let mut env_buf = [core::mem::MaybeUninit::<u8>::uninit(); MAX_ENV + 1];
 
     let mut i = 0usize;
     while i < path_bytes.len() {
@@ -59,7 +70,18 @@ pub fn exec_str(path: &str, args: &str) -> u64 {
     }
     args_buf[j].write(0);
 
-    exec(path_buf.as_ptr() as *const u8, args_buf.as_ptr() as *const u8)
+    let mut k = 0usize;
+    while k < env_bytes.len() {
+        env_buf[k].write(env_bytes[k]);
+        k += 1;
+    }
+    env_buf[k].write(0);
+
+    exec_env(
+        path_buf.as_ptr() as *const u8,
+        args_buf.as_ptr() as *const u8,
+        env_buf.as_ptr() as *const u8,
+    )
 }
 
 pub fn exit(code: u64) -> ! {

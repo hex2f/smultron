@@ -4,10 +4,10 @@
 use core::panic::PanicInfo;
 
 #[no_mangle]
-pub extern "C" fn _start(args: *const u8, syscall_gate: usize, _env: *const u8) -> u64 {
+pub extern "C" fn _start(_args: *const u8, syscall_gate: usize, env: *const u8) -> u64 {
     libos::set_syscall_gate(syscall_gate);
-    let msg = unsafe { cstr_to_str(args) };
-    echo::run(msg);
+    let env_str = unsafe { cstr_to_str(env) };
+    env::run(env_str);
     0
 }
 

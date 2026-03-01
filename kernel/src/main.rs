@@ -78,7 +78,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     serial_println!("[ok] all-phases boot flow completed");
 
     serial_println!("[ok] launching userspace init shell");
-    let code = process::exec("/bin/init", "");
+    let code = process::exec("/bin/init", "", "");
     serial_println!("[ok] userspace init exited with status {}", code);
     loop {
         x86_64::instructions::hlt();
