@@ -13,10 +13,14 @@ fn main() {
     build_user_app(root, &target_spec, "init", "0x0000555500000000");
     build_user_app(root, &target_spec, "echo", "0x0000555500100000");
     build_user_app(root, &target_spec, "env", "0x0000555500200000");
+    build_user_app(root, &target_spec, "ls", "0x0000555500300000");
+    build_user_app(root, &target_spec, "cat", "0x0000555500400000");
 
     copy_artifact(root, "init", &out_dir.join("init.elf"));
     copy_artifact(root, "echo", &out_dir.join("echo.elf"));
     copy_artifact(root, "env", &out_dir.join("env.elf"));
+    copy_artifact(root, "ls", &out_dir.join("ls.elf"));
+    copy_artifact(root, "cat", &out_dir.join("cat.elf"));
 
     println!(
         "cargo:rerun-if-changed={}",
@@ -29,6 +33,14 @@ fn main() {
     println!(
         "cargo:rerun-if-changed={}",
         root.join("userspace/apps/env").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("userspace/apps/ls").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("userspace/apps/cat").display()
     );
     println!(
         "cargo:rerun-if-changed={}",

@@ -9,7 +9,7 @@ use x86_64::{
 
 pub const PROCESS_SLOT_BASE: u64 = 0x0000_5555_0000_0000;
 pub const PROCESS_SLOT_SIZE: u64 = 0x0010_0000;
-pub const MAX_PROCESS_SLOTS: usize = 4;
+pub const MAX_PROCESS_SLOTS: usize = 5;
 const MAX_PROCESSES: usize = 16;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -52,15 +52,8 @@ impl ProcessManager {
         }
     }
 
-    fn spawn_slot(&mut self) -> Option<(u64, usize)> {
-        let mut slot_idx = 0usize;
-        while slot_idx < MAX_PROCESS_SLOTS {
-            if !self.slots_in_use[slot_idx] {
-                break;
-            }
-            slot_idx += 1;
-        }
-        if slot_idx == MAX_PROCESS_SLOTS {
+    fn spawn_slot(&mut self, slot_idx: usize) -> Option<(u64, usize)> {
+        if slot_idx >= MAX_PROCESS_SLOTS || self.slots_in_use[slot_idx] {
             return None;
         }
 
@@ -124,7 +117,10 @@ pub fn probe_executable(path: &str) -> bool {
     let Some(bytes) = vfs::read_file(path) else {
         return false;
     };
-    let slot = slot_for_index(0);
+    let Some(slot_idx) = slot_for_path(path) else {
+        return false;
+    };
+    let slot = slot_for_index(slot_idx);
     elf_loader::probe_elf_for_slot(bytes, slot)
 }
 
@@ -133,13 +129,17 @@ pub fn exec(path: &str, args: &str, env: &str) -> u64 {
         serial_println!("[failed] exec: missing app '{}'", path);
         return u64::MAX;
     };
+    let Some(slot_idx) = slot_for_path(path) else {
+        serial_println!("[failed] exec: no slot mapping for '{}'", path);
+        return u64::MAX;
+    };
 
-    let (pid, slot_idx) = {
+    let pid = {
         let mut pm = PROCESS_MANAGER.lock();
-        match pm.spawn_slot() {
-            Some(v) => v,
+        match pm.spawn_slot(slot_idx) {
+            Some((pid, _)) => pid,
             None => {
-                serial_println!("[failed] exec: no free process slot");
+                serial_println!("[failed] exec: slot {} unavailable for '{}'", slot_idx, path);
                 return u64::MAX;
             }
         }
@@ -168,6 +168,17 @@ fn slot_for_index(slot_idx: usize) -> elf_loader::AppSlot {
 
 fn slot_base(slot_idx: usize) -> u64 {
     PROCESS_SLOT_BASE + (slot_idx as u64) * PROCESS_SLOT_SIZE
+}
+
+fn slot_for_path(path: &str) -> Option<usize> {
+    match path {
+        "/bin/init" => Some(0),
+        "/bin/echo" => Some(1),
+        "/bin/env" => Some(2),
+        "/bin/ls" => Some(3),
+        "/bin/cat" => Some(4),
+        _ => None,
+    }
 }
 
 fn map_range(

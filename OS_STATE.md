@@ -30,6 +30,8 @@ Current syscall table in code:
 - `57`: `fork()` reserved
 - `59`: `execve(path, argv, envp)` loader scaffold path
 - `60`: `exit(status)` partial dispatch
+- `78`: `read_dir(path, buf, len)` VFS directory listing copy-out
+- `79`: `read_file(path, buf, len)` VFS file bytes copy-out
 
 ## Milestones
 - [x] Phase 1: Workspace Scaffold & Test Infrastructure
@@ -269,6 +271,88 @@ Current syscall table in code:
   - Intermediate investigation evidence:
     - Headless stdin-driven repro attempts (`-serial stdio` with piped input) produced incomplete command-submit behavior in this environment (typed text visible at prompt, no newline submission observed), which was not used as a success gate.
     - Stabilized on existing harness gates (`shell-start`, `phase-all`, `pytest`) for regression confidence.
+- 2026-03-20: Fixed app-slot mismatch for `/bin/*` execution (ls regression):
+  - Change:
+    - `kernel/src/process.rs`: switched from "first free slot" dispatch to path-to-slot dispatch so each ELF is validated/executed in its linked slot:
+      - `/bin/init -> slot 0`
+      - `/bin/echo -> slot 1`
+      - `/bin/env -> slot 2`
+      - `/bin/ls -> slot 3`
+    - Updated both `probe_executable(path)` and `exec(path, ...)` to use the same slot mapping.
+    - Added explicit failure signatures for unmapped paths and occupied fixed slots:
+      - `[failed] exec: no slot mapping for '<path>'`
+      - `[failed] exec: slot <n> unavailable for '<path>'`
+  - Verification:
+    - `python3 tests/harness.py --mode phase-all` passed (`[ok][phase2]`..`[ok][phase8]`, `visual_check: non-black pixels: 6846`).
+    - `cd kernel && cargo bootimage` passed (boot image created at `target/x86_64-smultron/debug/bootimage-kernel.bin`).
+    - Runtime evidence from headless serial run no longer shows prior `/bin/ls` load failure:
+      - prior signature (user repro): `[failed] exec: PT_LOAD outside app slot for '/bin/ls'`
+      - post-fix run reached `smultron$ ls` with no `PT_LOAD outside app slot` message.
+  - Known regressions / blockers observed in this step:
+    - `pytest -q` failed in this environment during collection of root-level `test_ls.py`:
+      - `OSError: out of pty devices`
+    - Headless piped-input runs still show first-character input skew (`ls` observed as `s` unless compensated) and are not treated as a functional shell gate.
+- 2026-03-20: Fixed `ls` VM lockup on `ReadDir` path:
+  - Root-cause evidence:
+    - Repro after entering shell and running `ls` showed hang at prompt (`smultron$ ls`) with no return.
+    - QEMU debug trace (`-d int`) captured recurring exception chain:
+      - `#UD (v=06) -> #NP (v=0b, e=0x0032) -> #DF (v=08)`
+      - dominant fault RIP in loop: `0x0000000000c83e45` (`kernel/src/interrupts.rs:52`, double-fault handler)
+      - first non-handler RIP before loop: `0x0000000000c8c223` (`kernel/src/vfs.rs:54`)
+    - Faulting line was stack zero-init in `vfs::list_dir`:
+      - `let mut dir_prefix = [0u8; 128];`
+  - Changes:
+    - `kernel/src/vfs.rs`:
+      - replaced `dir_prefix` stack zero-init with `MaybeUninit<u8>` byte writes and explicit prefix slice construction.
+    - `userspace/libos/src/lib.rs`:
+      - hardened `list_dir` path staging to `MaybeUninit<u8>` (no stack zero-init),
+      - added syscall failure guard (`u64::MAX -> 0`) and result clamping to caller buffer length.
+    - `userspace/apps/ls/src/lib.rs`:
+      - switched directory buffer staging to `MaybeUninit<u8>`,
+      - added defensive `len > buf.len()` early return.
+  - Verification:
+    - Runtime serial repro now succeeds:
+      - `smultron$ ls`
+      - `hello.txt`
+      - `bin`
+      - `smultron$`
+    - Required gates:
+      - `python3 tests/harness.py --mode phase-all` passed (`visual_check: non-black pixels: 4875`).
+      - `cd kernel && cargo bootimage` passed (boot image at `target/x86_64-smultron/debug/bootimage-kernel.bin`).
+    - Additional gate status:
+      - `pytest -q` still fails in this environment during collection of root-level `test_ls.py` with:
+        - `OSError: out of pty devices`
+- 2026-03-20: Added `/bin/cat` userspace app:
+  - Changes:
+    - Added new userspace app crate:
+      - `userspace/apps/cat` with `cat::run(args, cwd)` that:
+        - resolves relative paths against `CWD`,
+        - reads file bytes through new `read_file` syscall wrapper,
+        - writes file contents to stdout (`fd=1`).
+    - Added new syscall path for file reads:
+      - `kernel/src/syscall.rs`: syscall `79` (`ReadFile`) copies bytes from `vfs::read_file(path)` into caller buffer and returns copied length or `u64::MAX` on failure.
+      - `userspace/libos/src/lib.rs`: added `read_file(path, buf) -> Option<usize>` wrapper for syscall `79`.
+    - Wired `cat` into boot image and process execution:
+      - `Cargo.toml` workspace member added: `userspace/apps/cat`.
+      - `kernel/build.rs`: builds/copies `cat.elf` at image base `0x0000555500400000`.
+      - `kernel/src/vfs.rs`: added `/bin/cat` entry.
+      - `kernel/src/process.rs`: increased slot pool to `5` and mapped `/bin/cat -> slot 4`.
+  - Verification:
+    - Runtime serial evidence:
+      - `smultron$ cat /hello.txt`
+      - output: `hello.txt from initrd/TarFS`
+      - prompt returns: `smultron$`
+    - Required gates (final sequential run):
+      - `python3 tests/harness.py --mode phase-all` passed (`visual_check: non-black pixels: 4875`).
+      - `pytest -q` passed (`2 passed in 5.23s`).
+      - `cd kernel && cargo bootimage` passed (boot image at `target/x86_64-smultron/debug/bootimage-kernel.bin`).
+  - Intermediate failure signatures during this step (resolved before final gate):
+    - Parallel verification run reproduced known QMP contention:
+      - `qemu-system-x86_64: -qmp tcp:127.0.0.1:4444,server,nowait: Failed to find an available port: Address already in use`
+      - `[failed] serial markers not satisfied`
+      - `test_no_qemu_failure_mode_reports_ok`: `[failed] unexpected QMP response when QEMU should be absent`
+      - `test_shell_start_mode_reports_shell_markers`: `[failed] shell markers not satisfied`
+    - Resolved by terminating stale QEMU and rerunning gates sequentially.
 
 ## Known Gaps (Tracked)
 - Live `int3` path with mapped-heap configuration currently regresses into a fault chain (`#GP -> #DF`) under debug runs; phase marker retained while this path is isolated.
@@ -304,3 +388,9 @@ Current syscall table in code:
     - Built bootimage successfully (`cd kernel && cargo bootimage`).
     - Python tests successfully complete including visual checks (`python3 tests/harness.py --mode phase-all`).
     - Standard pytests confirm stability (`pytest -q`).
+- 2026-03-01: Added `cd` command to shell and implemented `ls` utility:
+  - Added `ReadDir = 78` syscall mapping to `vfs::list_dir`.
+  - Implemented `cd` command in the userspace shell (`userspace/apps/init`) which updates a `CWD` environment variable.
+  - Implemented `ls` as a separate userspace application that reads `CWD` from its environment string and uses `libos::list_dir` to print the contents of the directory.
+  - Registered `ls` in the build system and bundled it into the kernel boot image.
+  - Verified with `python3 tests/harness.py --mode phase-all` and `pytest -q`.

@@ -10,6 +10,8 @@ pub enum SyscallNumber {
     Fork = 57,
     Execve = 59,
     Exit = 60,
+    ReadDir = 78,
+    ReadFile = 79,
 }
 
 pub fn init() {
@@ -112,6 +114,54 @@ pub fn dispatch(nr: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
             crate::process::exec(path, args, env)
         }
         x if x == SyscallNumber::Exit as u64 => 0,
+        x if x == SyscallNumber::ReadDir as u64 => {
+            let path_ptr = arg0 as *const u8;
+            let buf_ptr = arg1 as *mut u8;
+            let buf_len = arg2 as usize;
+
+            if path_ptr.is_null() || buf_ptr.is_null() || buf_len == 0 {
+                return u64::MAX;
+            }
+
+            let mut path_buf = [core::mem::MaybeUninit::<u8>::uninit(); 128];
+            let path_len = match unsafe { copy_cstr_uninit(path_ptr, &mut path_buf) } {
+                Some(len) => len,
+                None => return u64::MAX,
+            };
+            let path_slice =
+                unsafe { slice::from_raw_parts(path_buf.as_ptr() as *const u8, path_len) };
+            let path = core::str::from_utf8(path_slice).unwrap_or("");
+
+            let buf = unsafe { slice::from_raw_parts_mut(buf_ptr, buf_len) };
+            crate::vfs::list_dir(path, buf) as u64
+        }
+        x if x == SyscallNumber::ReadFile as u64 => {
+            let path_ptr = arg0 as *const u8;
+            let buf_ptr = arg1 as *mut u8;
+            let buf_len = arg2 as usize;
+
+            if path_ptr.is_null() || buf_ptr.is_null() || buf_len == 0 {
+                return u64::MAX;
+            }
+
+            let mut path_buf = [core::mem::MaybeUninit::<u8>::uninit(); 128];
+            let path_len = match unsafe { copy_cstr_uninit(path_ptr, &mut path_buf) } {
+                Some(len) => len,
+                None => return u64::MAX,
+            };
+            let path_slice =
+                unsafe { slice::from_raw_parts(path_buf.as_ptr() as *const u8, path_len) };
+            let path = core::str::from_utf8(path_slice).unwrap_or("");
+
+            let Some(file_bytes) = crate::vfs::read_file(path) else {
+                return u64::MAX;
+            };
+
+            let copy_len = core::cmp::min(file_bytes.len(), buf_len);
+            let dst = unsafe { slice::from_raw_parts_mut(buf_ptr, copy_len) };
+            dst.copy_from_slice(&file_bytes[..copy_len]);
+            copy_len as u64
+        }
         _ => u64::MAX,
     }
 }

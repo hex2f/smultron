@@ -29,6 +29,8 @@ impl EnvVar {
 static mut ENV: [EnvVar; MAX_ENV_VARS] = [EnvVar::empty(); MAX_ENV_VARS];
 
 pub fn run() -> u64 {
+    set_env("CWD", "/");
+
     write_str("smultron shell (userspace)\n");
     write_str("type 'help' for commands\n");
 
@@ -212,7 +214,7 @@ fn dispatch(line: &[u8]) -> bool {
 
     match cmd {
         "help" => {
-            write_str("commands: help, clear, exit, env, export, <binary in /bin>\n");
+            write_str("commands: help, clear, exit, env, export, cd, <binary in /bin>\n");
             true
         }
         "clear" => {
@@ -220,6 +222,51 @@ fn dispatch(line: &[u8]) -> bool {
             true
         }
         "exit" => false,
+        "cd" => {
+            let mut path = args.trim();
+            if path.is_empty() {
+                path = "/";
+            }
+            // Optional: minimal absolute path handling vs relative. Since VFS is simple,
+            // maybe we just treat it directly or assume basic absolute/relative.
+            // But let's just do absolute for now or simple appending if not absolute.
+            let mut new_cwd = [0u8; 128];
+            let mut new_cwd_len = 0;
+
+            if path.starts_with('/') {
+                let bytes = path.as_bytes();
+                let len = core::cmp::min(bytes.len(), new_cwd.len() - 1);
+                new_cwd[..len].copy_from_slice(&bytes[..len]);
+                new_cwd_len = len;
+            } else {
+                if let Some(cwd) = get_env("CWD") {
+                    let len1 = core::cmp::min(cwd.len(), new_cwd.len() - 1);
+                    new_cwd[..len1].copy_from_slice(&cwd[..len1]);
+                    new_cwd_len = len1;
+                    if new_cwd_len > 0 && new_cwd[new_cwd_len - 1] != b'/' {
+                        new_cwd[new_cwd_len] = b'/';
+                        new_cwd_len += 1;
+                    }
+                } else {
+                    new_cwd[0] = b'/';
+                    new_cwd_len = 1;
+                }
+                let bytes = path.as_bytes();
+                let len2 = core::cmp::min(bytes.len(), new_cwd.len() - new_cwd_len - 1);
+                new_cwd[new_cwd_len..new_cwd_len + len2].copy_from_slice(&bytes[..len2]);
+                new_cwd_len += len2;
+            }
+
+            // normalize trailing slash unless it's just "/"
+            if new_cwd_len > 1 && new_cwd[new_cwd_len - 1] == b'/' {
+                new_cwd_len -= 1;
+            }
+
+            if let Ok(p) = core::str::from_utf8(&new_cwd[..new_cwd_len]) {
+                set_env("CWD", p);
+            }
+            true
+        }
         "env" => {
             let (env_buf, env_len) = build_env_str();
             let env_str = core::str::from_utf8(&env_buf[..env_len]).unwrap_or("");

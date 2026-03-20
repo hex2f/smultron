@@ -5,6 +5,8 @@ members = [
   "userspace/apps/init",
   "userspace/apps/echo",
   "userspace/apps/env",
+  "userspace/apps/ls",
+  "userspace/apps/cat",
 ]
 resolver = "2"
 

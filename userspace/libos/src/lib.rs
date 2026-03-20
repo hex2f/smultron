@@ -27,6 +27,64 @@ pub fn read(fd: u64, buf: *mut u8, len: u64) -> u64 {
     unsafe { syscall3(0, fd, buf as u64, len) }
 }
 
+pub fn list_dir(path: &str, buf: &mut [u8]) -> usize {
+    let mut path_buf = [core::mem::MaybeUninit::<u8>::uninit(); 128];
+    let path_bytes = path.as_bytes();
+    if path_bytes.len() >= 128 {
+        return 0;
+    }
+
+    let mut i = 0usize;
+    while i < path_bytes.len() {
+        path_buf[i].write(path_bytes[i]);
+        i += 1;
+    }
+    path_buf[path_bytes.len()].write(0);
+
+    let ret = unsafe {
+        syscall3(
+            78,
+            path_buf.as_ptr() as u64,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        )
+    };
+
+    if ret == u64::MAX {
+        return 0;
+    }
+    (ret as usize).min(buf.len())
+}
+
+pub fn read_file(path: &str, buf: &mut [u8]) -> Option<usize> {
+    let mut path_buf = [core::mem::MaybeUninit::<u8>::uninit(); 128];
+    let path_bytes = path.as_bytes();
+    if path_bytes.len() >= 128 {
+        return None;
+    }
+
+    let mut i = 0usize;
+    while i < path_bytes.len() {
+        path_buf[i].write(path_bytes[i]);
+        i += 1;
+    }
+    path_buf[path_bytes.len()].write(0);
+
+    let ret = unsafe {
+        syscall3(
+            79,
+            path_buf.as_ptr() as u64,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        )
+    };
+
+    if ret == u64::MAX {
+        return None;
+    }
+    Some((ret as usize).min(buf.len()))
+}
+
 pub fn exec(path: *const u8, args: *const u8) -> u64 {
     unsafe { syscall3(59, path as u64, args as u64, 0) }
 }
