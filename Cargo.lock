@@ -168,6 +168,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tee"
+version = "0.1.0"
+dependencies = [
+ "libos",
+]
+
+[[package]]
 name = "uart_16550"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

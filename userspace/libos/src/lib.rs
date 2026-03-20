@@ -93,6 +93,18 @@ pub fn exec_env(path: *const u8, args: *const u8, env: *const u8) -> u64 {
     unsafe { syscall3(59, path as u64, args as u64, env as u64) }
 }
 
+#[repr(C)]
+struct ExecIoRequest {
+    path_ptr: *const u8,
+    args_ptr: *const u8,
+    env_ptr: *const u8,
+    stdin_ptr: *const u8,
+    stdin_len: u64,
+    stdout_ptr: *mut u8,
+    stdout_cap: u64,
+    status_ptr: *mut u64,
+}
+
 pub fn exec_str(path: &str, args: &str) -> u64 {
     exec_str_env(path, args, "")
 }
@@ -140,6 +152,105 @@ pub fn exec_str_env(path: &str, args: &str, env: &str) -> u64 {
         args_buf.as_ptr() as *const u8,
         env_buf.as_ptr() as *const u8,
     )
+}
+
+pub fn exec_io_str_env(
+    path: &str,
+    args: &str,
+    env: &str,
+    stdin: Option<&[u8]>,
+    stdout: Option<&mut [u8]>,
+) -> (u64, usize) {
+    const MAX_PATH: usize = 63;
+    const MAX_ARGS: usize = 191;
+    const MAX_ENV: usize = 511;
+    let path_bytes = path.as_bytes();
+    let arg_bytes = args.as_bytes();
+    let env_bytes = env.as_bytes();
+    if path_bytes.len() > MAX_PATH || arg_bytes.len() > MAX_ARGS || env_bytes.len() > MAX_ENV {
+        return (u64::MAX, 0);
+    }
+
+    let mut path_buf = [core::mem::MaybeUninit::<u8>::uninit(); MAX_PATH + 1];
+    let mut args_buf = [core::mem::MaybeUninit::<u8>::uninit(); MAX_ARGS + 1];
+    let mut env_buf = [core::mem::MaybeUninit::<u8>::uninit(); MAX_ENV + 1];
+
+    let mut i = 0usize;
+    while i < path_bytes.len() {
+        path_buf[i].write(path_bytes[i]);
+        i += 1;
+    }
+    path_buf[i].write(0);
+
+    let mut j = 0usize;
+    while j < arg_bytes.len() {
+        args_buf[j].write(arg_bytes[j]);
+        j += 1;
+    }
+    args_buf[j].write(0);
+
+    let mut k = 0usize;
+    while k < env_bytes.len() {
+        env_buf[k].write(env_bytes[k]);
+        k += 1;
+    }
+    env_buf[k].write(0);
+
+    let (stdin_ptr, stdin_len) = match stdin {
+        Some(s) => (s.as_ptr(), s.len() as u64),
+        None => (core::ptr::null(), 0),
+    };
+
+    let (stdout_ptr, stdout_cap) = match stdout {
+        Some(s) => (s.as_mut_ptr(), s.len() as u64),
+        None => (core::ptr::null_mut(), 0),
+    };
+
+    let mut status = u64::MAX;
+    let req = ExecIoRequest {
+        path_ptr: path_buf.as_ptr() as *const u8,
+        args_ptr: args_buf.as_ptr() as *const u8,
+        env_ptr: env_buf.as_ptr() as *const u8,
+        stdin_ptr,
+        stdin_len,
+        stdout_ptr,
+        stdout_cap,
+        status_ptr: &mut status as *mut u64,
+    };
+
+    let out_len = unsafe { syscall3(80, &req as *const ExecIoRequest as u64, 0, 0) };
+    if out_len == u64::MAX {
+        return (u64::MAX, 0);
+    }
+    (status, out_len as usize)
+}
+
+pub fn write_file(path: &str, data: &[u8]) -> Option<usize> {
+    let mut path_buf = [core::mem::MaybeUninit::<u8>::uninit(); 128];
+    let path_bytes = path.as_bytes();
+    if path_bytes.len() >= 128 {
+        return None;
+    }
+
+    let mut i = 0usize;
+    while i < path_bytes.len() {
+        path_buf[i].write(path_bytes[i]);
+        i += 1;
+    }
+    path_buf[path_bytes.len()].write(0);
+
+    let ret = unsafe {
+        syscall3(
+            81,
+            path_buf.as_ptr() as u64,
+            data.as_ptr() as u64,
+            data.len() as u64,
+        )
+    };
+    if ret == u64::MAX {
+        return None;
+    }
+    Some(ret as usize)
 }
 
 pub fn exit(code: u64) -> ! {

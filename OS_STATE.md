@@ -394,3 +394,95 @@ Current syscall table in code:
   - Implemented `ls` as a separate userspace application that reads `CWD` from its environment string and uses `libos::list_dir` to print the contents of the directory.
   - Registered `ls` in the build system and bundled it into the kernel boot image.
   - Verified with `python3 tests/harness.py --mode phase-all` and `pytest -q`.
+- 2026-03-20: Added shell support for basic piping and redirection (`|`, `>`, `<`):
+  - Changes:
+    - `kernel/src/process.rs`:
+      - added temporary per-exec stdio context used only while `process::exec_with_io(...)` is running,
+      - added redirected stdin byte source and stdout capture buffer for syscall read/write paths.
+    - `kernel/src/syscall.rs`:
+      - added syscall `80` (`ExecIo`) using an `ExecIoRequest` pointer to execute a command with optional stdin injection and stdout capture,
+      - added syscall `81` (`WriteFile`) to persist bytes to writable RAM-backed files,
+      - updated syscall `read(fd=0)` to consume redirected stdin first and return EOF when redirected input is exhausted,
+      - updated syscall `write(fd=1/2)` to route output into capture buffer when active,
+      - updated syscall `79` (`ReadFile`) to use new byte-copy VFS read path.
+    - `kernel/src/vfs.rs`:
+      - added RAM-backed writable file overlay (`MAX_RAM_FILES=16`, `MAX_RAM_FILE_LEN=4096`),
+      - added `write_file(path, data)` and `read_file_bytes(path, out)` for shell-created files,
+      - `list_dir` now includes RAM-backed files alongside static initrd entries.
+    - `userspace/libos/src/lib.rs`:
+      - added `exec_io_str_env(...) -> (status, captured_len)` wrapper for syscall `80`,
+      - added `write_file(path, data)` wrapper for syscall `81`.
+    - `userspace/apps/init/src/lib.rs`:
+      - shell parser now handles up to 4 pipeline stages,
+      - supports `< file` on first stage and `> file` on last stage,
+      - pipelines/redirection are executed through `exec_io` and captured buffers,
+      - redirection paths resolve relative to `CWD`.
+      - Note: for this step, pipes/redirection are intentionally limited to external `/bin/*` commands (builtins still work only in simple-command mode).
+    - `userspace/apps/cat/src/lib.rs`:
+      - added stdin mode when no path argument is provided, enabling `cmd | cat` and `cat < file` flows.
+  - Verification:
+    - Required gates (final sequential run):
+      - `python3 tests/harness.py --mode phase-all` passed (`[ok][phase2]`..`[ok][phase8]`, `visual_check: non-black pixels: 4875`).
+      - `pytest -q` passed (`2 passed in 5.73s`).
+      - `cd kernel && cargo bootimage` passed (boot image at `target/x86_64-smultron/debug/bootimage-kernel.bin`).
+  - Intermediate failure signatures during this step (resolved before final gate):
+    - Initial `phase-all` run failed with stale QMP port contention:
+      - `qemu-system-x86_64: -qmp tcp:127.0.0.1:4444,server,nowait: Failed to find an available port: Address already in use`
+      - `[failed] serial markers not satisfied`
+    - Resolved by terminating stale QEMU and rerunning gates sequentially.
+  - Known regression coverage gap for this step:
+    - No dedicated automated harness/pytest case exists yet for `|`, `>`, `<` behavior, so these new shell semantics are implemented but not yet directly gate-tested.
+- 2026-03-20: Implemented quote-aware shell parsing (single/double quotes + escapes):
+  - Changes:
+    - `userspace/apps/init/src/lib.rs`:
+      - replaced whitespace-based command splitting with tokenizer-based parsing (`tokenize_command`) that supports:
+        - single quotes: `'...'`
+        - double quotes: `"..."`
+        - backslash escapes (including inside double quotes)
+        - operator recognition for `|`, `<`, `>` only when unquoted.
+      - added token model (`TokenKind`, `Token`) and helpers for safe token/arg reconstruction:
+        - `token_word(...)`
+        - `join_word_tokens(...)`
+      - updated top-level dispatch to parse once into tokens, then route to:
+        - simple command execution when no operators are present,
+        - pipeline/redirection execution (`dispatch_compound_tokens`) when operators are present.
+      - updated stage parsing to consume token streams rather than `split_whitespace`, so quoted arguments and quoted redirection paths are preserved correctly.
+      - added explicit parse errors for malformed quoting/escaping:
+        - `parse error: unclosed quote`
+        - `parse error: trailing escape`
+        - existing placement/arity errors for `|`, `<`, `>` retained.
+  - Verification:
+    - Required gates (sequential):
+      - `python3 tests/harness.py --mode phase-all` passed (`[ok][phase2]`..`[ok][phase8]`, `visual_check: non-black pixels: 4875`).
+      - `pytest -q` passed (`2 passed in 5.93s`).
+      - `cd kernel && cargo bootimage` passed (boot image at `target/x86_64-smultron/debug/bootimage-kernel.bin`).
+  - Known regression/failure signatures:
+    - No new gate failures observed in this step.
+  - Known coverage gap for this step:
+    - No dedicated automated harness/pytest cases yet for quote semantics across simple commands, pipes, and redirection.
+- 2026-03-20: Added userspace `/bin/tee` command:
+  - Changes:
+    - Added new userspace app crate:
+      - `userspace/apps/tee` with `tee::run(args)` implementation.
+      - behavior: reads stdin until EOF, mirrors stream to stdout, and writes the captured stream to each file path argument.
+      - file writes use existing syscall-backed `libos::write_file(...)` (overwrite semantics).
+    - Wired `tee` into workspace/build pipeline:
+      - `Cargo.toml`: added workspace member `userspace/apps/tee`.
+      - `kernel/build.rs`:
+        - added userspace build for `tee` at image base `0x0000555500500000`,
+        - added artifact copy to `tee.elf`,
+        - added rerun trigger for `userspace/apps/tee`.
+    - Wired runtime execution mapping:
+      - `kernel/src/vfs.rs`: added `/bin/tee` static ELF entry.
+      - `kernel/src/process.rs`:
+        - increased `MAX_PROCESS_SLOTS` from `5` to `6`,
+        - added slot mapping `/bin/tee -> slot 5`.
+  - Verification:
+    - Required gates (sequential):
+      - `python3 tests/harness.py --mode phase-all` passed (`[ok][phase2]`..`[ok][phase8]`, `visual_check: non-black pixels: 4875`).
+      - `pytest -q` passed (`2 passed in 5.51s`).
+      - `cd kernel && cargo bootimage` passed (boot image at `target/x86_64-smultron/debug/bootimage-kernel.bin`).
+  - Known regressions / exact failure signatures:
+    - No new gate failures observed in this step.
+  - Known coverage gap for this step:
+    - No dedicated automated harness/pytest case yet for `/bin/tee` behavior (stdin mirror + multi-file write).

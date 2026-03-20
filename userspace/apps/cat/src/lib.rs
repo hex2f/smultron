@@ -3,7 +3,15 @@
 pub fn run(args: &str, cwd: &str) {
     let path_arg = args.trim();
     if path_arg.is_empty() {
-        write_str("usage: cat <path>\n");
+        // Stdin mode: used by shell piping/redirection (`cmd | cat`, `cat < file`).
+        let mut buf = [0u8; 256];
+        loop {
+            let n = libos::read(0, buf.as_mut_ptr(), buf.len() as u64);
+            if n == 0 || n == u64::MAX {
+                break;
+            }
+            let _ = libos::write(1, buf.as_ptr(), n);
+        }
         return;
     }
 

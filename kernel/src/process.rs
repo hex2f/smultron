@@ -9,8 +9,10 @@ use x86_64::{
 
 pub const PROCESS_SLOT_BASE: u64 = 0x0000_5555_0000_0000;
 pub const PROCESS_SLOT_SIZE: u64 = 0x0010_0000;
-pub const MAX_PROCESS_SLOTS: usize = 5;
+pub const MAX_PROCESS_SLOTS: usize = 6;
 const MAX_PROCESSES: usize = 16;
+const MAX_IO_STDIN: usize = 4096;
+const MAX_IO_STDOUT: usize = 4096;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ProcessState {
@@ -97,7 +99,41 @@ impl ProcessManager {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum StdinByte {
+    Byte(u8),
+    Eof,
+    Unavailable,
+}
+
+struct IoState {
+    active: bool,
+    stdin_enabled: bool,
+    stdin_len: usize,
+    stdin_pos: usize,
+    stdout_capture: bool,
+    stdout_len: usize,
+    stdin_buf: [u8; MAX_IO_STDIN],
+    stdout_buf: [u8; MAX_IO_STDOUT],
+}
+
+impl IoState {
+    const fn new() -> Self {
+        Self {
+            active: false,
+            stdin_enabled: false,
+            stdin_len: 0,
+            stdin_pos: 0,
+            stdout_capture: false,
+            stdout_len: 0,
+            stdin_buf: [0; MAX_IO_STDIN],
+            stdout_buf: [0; MAX_IO_STDOUT],
+        }
+    }
+}
+
 static PROCESS_MANAGER: Mutex<ProcessManager> = Mutex::new(ProcessManager::new());
+static IO_STATE: Mutex<IoState> = Mutex::new(IoState::new());
 
 pub fn init_exec_regions(
     mapper: &mut impl Mapper<Size4KiB>,
@@ -125,6 +161,82 @@ pub fn probe_executable(path: &str) -> bool {
 }
 
 pub fn exec(path: &str, args: &str, env: &str) -> u64 {
+    exec_with_io(path, args, env, None, None).0
+}
+
+pub fn exec_with_io(
+    path: &str,
+    args: &str,
+    env: &str,
+    stdin: Option<&[u8]>,
+    mut stdout_out: Option<&mut [u8]>,
+) -> (u64, usize) {
+    {
+        let mut io = IO_STATE.lock();
+        io.active = true;
+        io.stdin_enabled = stdin.is_some();
+        io.stdin_len = 0;
+        io.stdin_pos = 0;
+        io.stdout_capture = stdout_out.is_some();
+        io.stdout_len = 0;
+
+        if let Some(data) = stdin {
+            let copy_len = core::cmp::min(data.len(), MAX_IO_STDIN);
+            io.stdin_buf[..copy_len].copy_from_slice(&data[..copy_len]);
+            io.stdin_len = copy_len;
+        }
+    }
+
+    let status = exec_internal(path, args, env);
+
+    let mut captured = 0usize;
+    {
+        let mut io = IO_STATE.lock();
+        if let Some(out) = &mut stdout_out {
+            let copy_len = core::cmp::min(io.stdout_len, out.len());
+            out[..copy_len].copy_from_slice(&io.stdout_buf[..copy_len]);
+            captured = copy_len;
+        }
+        io.active = false;
+        io.stdin_enabled = false;
+        io.stdin_len = 0;
+        io.stdin_pos = 0;
+        io.stdout_capture = false;
+        io.stdout_len = 0;
+    }
+
+    (status, captured)
+}
+
+pub fn take_stdin_byte() -> StdinByte {
+    let mut io = IO_STATE.lock();
+    if !io.active || !io.stdin_enabled {
+        return StdinByte::Unavailable;
+    }
+    if io.stdin_pos >= io.stdin_len {
+        return StdinByte::Eof;
+    }
+    let b = io.stdin_buf[io.stdin_pos];
+    io.stdin_pos += 1;
+    StdinByte::Byte(b)
+}
+
+pub fn capture_stdout(buf: &[u8]) -> bool {
+    let mut io = IO_STATE.lock();
+    if !io.active || !io.stdout_capture || io.stdout_len >= MAX_IO_STDOUT {
+        return false;
+    }
+
+    let remaining = MAX_IO_STDOUT - io.stdout_len;
+    let copy_len = core::cmp::min(remaining, buf.len());
+    let start = io.stdout_len;
+    let end = start + copy_len;
+    io.stdout_buf[start..end].copy_from_slice(&buf[..copy_len]);
+    io.stdout_len += copy_len;
+    true
+}
+
+fn exec_internal(path: &str, args: &str, env: &str) -> u64 {
     let Some(bytes) = vfs::read_file(path) else {
         serial_println!("[failed] exec: missing app '{}'", path);
         return u64::MAX;
@@ -177,6 +289,7 @@ fn slot_for_path(path: &str) -> Option<usize> {
         "/bin/env" => Some(2),
         "/bin/ls" => Some(3),
         "/bin/cat" => Some(4),
+        "/bin/tee" => Some(5),
         _ => None,
     }
 }
