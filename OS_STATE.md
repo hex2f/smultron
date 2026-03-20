@@ -502,3 +502,37 @@ Current syscall table in code:
       - live `int3` debug path fault chain: `#GP -> #DF` (mapped-heap configuration),
       - historical QMP contention when running checks in parallel:
         - `qemu-system-x86_64: -qmp tcp:127.0.0.1:4444,server,nowait: Failed to find an available port: Address already in use`.
+- 2026-03-20: Added userspace `/bin/sed` command:
+  - Changes:
+    - Added new userspace app crate:
+      - `userspace/apps/sed` with `sed::run(args, cwd)` implementation.
+      - behavior:
+        - accepts a single substitution script in form `s<delim>old<delim>new<delim>[g]`,
+        - reads from stdin when no file args are provided,
+        - reads and transforms one or more file arguments otherwise (relative paths resolved against `CWD`),
+        - writes transformed bytes to stdout.
+    - Wired `sed` into workspace/build/runtime:
+      - `Cargo.toml`: added workspace member `userspace/apps/sed`.
+      - `kernel/build.rs`:
+        - builds userspace `sed` at image base `0x0000555500600000`,
+        - copies `sed.elf`,
+        - adds rerun trigger for `userspace/apps/sed`.
+      - `kernel/src/vfs.rs`: added `/bin/sed` static ELF entry.
+      - `kernel/src/process.rs`:
+        - increased `MAX_PROCESS_SLOTS` from `6` to `7`,
+        - added slot mapping `/bin/sed -> slot 6`.
+    - Updated docs:
+      - `README.md` app/command lists now include `/bin/sed`.
+  - Verification:
+    - Required gates (final sequential run):
+      - `python3 tests/harness.py --mode phase-all` passed (`[ok][phase2]`..`[ok][phase8]`, `visual_check: non-black pixels: 4875`).
+      - `pytest -q` passed (`2 passed in 6.43s`).
+      - `cd kernel && cargo bootimage` passed (boot image at `target/x86_64-smultron/debug/bootimage-kernel.bin`).
+    - Additional compile check:
+      - `cargo check -p sed` passed.
+  - Known regressions / exact failure signatures:
+    - No new sed-specific regressions observed in required gates.
+    - Intermediate environment failure before final gate run:
+      - `qemu-system-x86_64: -qmp tcp:127.0.0.1:4444,server,nowait: Failed to find an available port: Address already in use`
+      - `[failed] serial markers not satisfied`
+    - Resolved by terminating stale QEMU process and rerunning gates sequentially.

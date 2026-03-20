@@ -16,6 +16,7 @@ fn main() {
     build_user_app(root, &target_spec, "ls", "0x0000555500300000");
     build_user_app(root, &target_spec, "cat", "0x0000555500400000");
     build_user_app(root, &target_spec, "tee", "0x0000555500500000");
+    build_user_app(root, &target_spec, "sed", "0x0000555500600000");
 
     copy_artifact(root, "init", &out_dir.join("init.elf"));
     copy_artifact(root, "echo", &out_dir.join("echo.elf"));
@@ -23,6 +24,7 @@ fn main() {
     copy_artifact(root, "ls", &out_dir.join("ls.elf"));
     copy_artifact(root, "cat", &out_dir.join("cat.elf"));
     copy_artifact(root, "tee", &out_dir.join("tee.elf"));
+    copy_artifact(root, "sed", &out_dir.join("sed.elf"));
 
     println!(
         "cargo:rerun-if-changed={}",
@@ -47,6 +49,10 @@ fn main() {
     println!(
         "cargo:rerun-if-changed={}",
         root.join("userspace/apps/tee").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("userspace/apps/sed").display()
     );
     println!(
         "cargo:rerun-if-changed={}",

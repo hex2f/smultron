@@ -16,6 +16,7 @@ Smultron is an entirely vibe-coded x86_64 Rust OS kernel with a small userspace 
 - `/bin/ls`
 - `/bin/cat`
 - `/bin/tee`
+- `/bin/sed`
 
 ## Prerequisites
 
@@ -80,6 +81,7 @@ External commands:
 - `ls`
 - `cat <file>`
 - `tee <file> [file2 ...]`
+- `sed s/old/new/[g] [file...]`
 
 I/O features:
 

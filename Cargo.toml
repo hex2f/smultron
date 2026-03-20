@@ -8,6 +8,7 @@ members = [
   "userspace/apps/ls",
   "userspace/apps/cat",
   "userspace/apps/tee",
+  "userspace/apps/sed",
 ]
 resolver = "2"
 

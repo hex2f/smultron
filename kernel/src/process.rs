@@ -9,7 +9,7 @@ use x86_64::{
 
 pub const PROCESS_SLOT_BASE: u64 = 0x0000_5555_0000_0000;
 pub const PROCESS_SLOT_SIZE: u64 = 0x0010_0000;
-pub const MAX_PROCESS_SLOTS: usize = 6;
+pub const MAX_PROCESS_SLOTS: usize = 7;
 const MAX_PROCESSES: usize = 16;
 const MAX_IO_STDIN: usize = 4096;
 const MAX_IO_STDOUT: usize = 4096;
@@ -290,6 +290,7 @@ fn slot_for_path(path: &str) -> Option<usize> {
         "/bin/ls" => Some(3),
         "/bin/cat" => Some(4),
         "/bin/tee" => Some(5),
+        "/bin/sed" => Some(6),
         _ => None,
     }
 }

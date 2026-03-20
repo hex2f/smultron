@@ -8,6 +8,7 @@ static ENV_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/env.elf"));
 static LS_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ls.elf"));
 static CAT_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/cat.elf"));
 static TEE_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/tee.elf"));
+static SED_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/sed.elf"));
 
 struct FileEntry {
     path: &'static str,
@@ -69,6 +70,10 @@ static FILES: &[FileEntry] = &[
     FileEntry {
         path: "/bin/tee",
         data: TEE_ELF,
+    },
+    FileEntry {
+        path: "/bin/sed",
+        data: SED_ELF,
     },
 ];
 
