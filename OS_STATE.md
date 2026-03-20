@@ -486,3 +486,19 @@ Current syscall table in code:
     - No new gate failures observed in this step.
   - Known coverage gap for this step:
     - No dedicated automated harness/pytest case yet for `/bin/tee` behavior (stdin mirror + multi-file write).
+- 2026-03-20: Added repository README documentation:
+  - Changes:
+    - Wrote top-level `README.md` with:
+      - project scope and current architecture status,
+      - prerequisites and build/run commands,
+      - required verification gate commands,
+      - shell command usage (`/bin/*`, env, quoting, pipes/redirection),
+      - repository layout and known gaps summary.
+  - Verification:
+    - Docs-only step; no code/runtime behavior changed.
+    - Automated gates were not re-run for this documentation update.
+  - Known regressions / exact failure signatures:
+    - Unchanged from prior state; latest tracked low-level/runtime signatures remain:
+      - live `int3` debug path fault chain: `#GP -> #DF` (mapped-heap configuration),
+      - historical QMP contention when running checks in parallel:
+        - `qemu-system-x86_64: -qmp tcp:127.0.0.1:4444,server,nowait: Failed to find an available port: Address already in use`.
